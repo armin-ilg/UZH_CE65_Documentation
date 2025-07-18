@@ -21,7 +21,7 @@ set -e
 # -t : optional analysis tag. Can be used to distinguish different runs (e.g. files). Analysis output will be inside ${chip}/${tag} dir if passed.
 # -a : Skip execution of alignment loops, and only run analysis. Used for threshold scans.
 # -b : Suppress printing of analysis.pdf file. Used for threshold scans.
-
+# -s : Skip steps. Comma-separated list of steps to skip. Possible values: prealign_tel,align_tel,prealign_dut,align_dut,analysis. Default is empty, meaning no steps are skipped.
 
 
 
@@ -48,7 +48,7 @@ fi
 
 
 # Parse options using getopts
-while getopts "abp:t:" opt; do
+while getopts "abp:t:s:" opt; do
   if [ "$opt" == "a" ]; then
     flag_analysis=true
   elif [ "$opt" == "b" ]; then
@@ -62,6 +62,10 @@ while getopts "abp:t:" opt; do
     fi
   elif [ "$opt" == "t" ]; then
     tag="$OPTARG"
+  elif [ "$opt" == "s" ]; then
+    skip="$OPTARG"
+    IFS=',' read -r -a skip_list <<< "$skip"
+    echo "Skipping the following steps: ${skip_list[@]}"
   else
     echo "Unknown option: -$opt"
     exit 1
@@ -346,8 +350,14 @@ if [ "${geo_source}" == "geometry/${testbeam_alphabetic}-GAP18SQ_HV10.geo" ]; th
     else
         sed -i "s#\.\./qa/DESY-GAP18SQ_HV10-noisemap_mask\.txt##g" geometry/${chip}/${tag_w_slash}${testbeam_alphabetic}-${chip}_HV${HV}.geo
     fi
-fi
 
+    # Check if chip name includes "HSQ" (if it's a chip with staggered layout of pixels). In this case the geometry file needs to be adjusted.
+    if [[ "${chip}" == *"HSQ"* ]]; then
+        # Complicated way to replace the last occurrence of "coordinates = 'cartesian'" with "coordinates = 'staggered'" in the geometry file
+        tac geometry/${chip}/${tag_w_slash}${testbeam_alphabetic}-${chip}_HV${HV}.geo | sed '0,/coordinates = "cartesian"/s//coordinates = "staggered"/' | tac > geometry/${chip}/${tag_w_slash}${testbeam_alphabetic}-${chip}_HV${HV}.geo.tmp
+        mv geometry/${chip}/${tag_w_slash}${testbeam_alphabetic}-${chip}_HV${HV}.geo.tmp geometry/${chip}/${tag_w_slash}${testbeam_alphabetic}-${chip}_HV${HV}.geo
+    fi
+fi
 
 
 
@@ -597,144 +607,163 @@ if ! $flag_analysis; then
 
 
     
-    
-    ####################
-    # Prealignment-tel #
-    ####################
-    
-    echo -e "\n\n\n\033[1;95m############################################################################\033[0m"
-    echo -e "\033[1;95m# execution : corry -c config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}.conf #\033[0m"
-    echo -e "\033[1;95m############################################################################\033[0m\n\n\n\033[0m"
-    
-    i=1
-    while [ $i -le ${niter_prealign_tel} ]; do 
-        cp config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}.conf config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        sleep 5 # wait for file to be copied
-        sed -i "s#detectors_file_updated = \(.*\)\.conf#detectors_file_updated = \1_iter${i}.conf#g" config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        sed -i "s#histogram_file\(.*\)\.root#histogram_file\1_iter${i}.root#g" config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        if [ ${i} -gt 1 ]; then 
-            sed -i "s#detectors_file \(.*\)\.geo#detectors_file \1_prealigned_tel_iter$((i-1)).conf#g" config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        fi
-        corry -c config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        # ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag}/prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.root --noisy-freq 0.95
-        i=$((i+1))
-    done 
-    ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${niter_prealign_tel}.root --noisy-freq 0.95
-    
-    
-    #################
-    # Alignment-tel #
-    #################
-    
-    echo -e "\n\n\n\033[1;95m#########################################################################\033[0m"
-    echo -e "\033[1;95m# execution : corry -c config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}.conf #\033[0m"
-    echo -e "\033[1;95m#########################################################################\033[0m\n\n\n"
-    i=1
-    
-    
-    
-    if [ "${spatial_cut_iterations}" == "True" ]; then
-        niter_align_tel=${#spatial_cuts[@]}
+    if [[ " ${skip_list[@]} " =~ " prealign_tel " ]]; then
+        echo "Skipping prealign_tel!"
+    else    
+        ####################
+        # Prealignment-tel #
+        ####################
+        
+        echo -e "\n\n\n\033[1;95m############################################################################\033[0m"
+        echo -e "\033[1;95m# execution : corry -c config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}.conf #\033[0m"
+        echo -e "\033[1;95m############################################################################\033[0m\n\n\n\033[0m"
+        
+        i=1
+        while [ $i -le ${niter_prealign_tel} ]; do 
+            cp config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}.conf config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            sleep 5 # wait for file to be copied
+            sed -i "s#detectors_file_updated = \(.*\)\.conf#detectors_file_updated = \1_iter${i}.conf#g" config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            sed -i "s#histogram_file\(.*\)\.root#histogram_file\1_iter${i}.root#g" config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            if [ ${i} -gt 1 ]; then 
+                sed -i "s#detectors_file \(.*\)\.geo#detectors_file \1_prealigned_tel_iter$((i-1)).conf#g" config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            fi
+            corry -c config/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            # ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag}/prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.root --noisy-freq 0.95
+            i=$((i+1))
+        done 
+        ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag_w_slash}prealign_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${niter_prealign_tel}.root --noisy-freq 0.95
     fi
-    while [ $i -le ${niter_align_tel} ]; do 
-        cp config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}.conf config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        sleep 5 # wait for file to be copied
-        sed -i "s#detectors_file_updated = \(.*\)\.conf#detectors_file_updated = \1_iter${i}.conf#g" config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        sed -i "s#histogram_file\(.*\)\.root#histogram_file\1_iter${i}.root#g" config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        # Iteratively decrease spatial_cut if spatial_cut_iterations variable set to true
+    
+
+    if [[ " ${skip_list[@]} " =~ " align_tel " ]]; then
+        echo "Skipping align_tel!"
+    else    
+        #################
+        # Alignment-tel #
+        #################
+        
+        echo -e "\n\n\n\033[1;95m#########################################################################\033[0m"
+        echo -e "\033[1;95m# execution : corry -c config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}.conf #\033[0m"
+        echo -e "\033[1;95m#########################################################################\033[0m\n\n\n"
+        i=1
+        
+        
+        
         if [ "${spatial_cut_iterations}" == "True" ]; then
-            sed -i "s#spatial_cut_abs=.*#spatial_cut_abs=${spatial_cuts[$((i-1))]}um,${spatial_cuts[$((i-1))]}um#g" config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            niter_align_tel=${#spatial_cuts[@]}
         fi
-        if [ ${i} -gt 1 ]; then 
-            sed -i "s#detectors_file \(.*\)\_prealigned_tel.conf#detectors_file \1_aligned_tel_iter$((i-1)).conf#g" config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        else 
-            sed -i "s#detectors_file \(.*\)\.conf#detectors_file \1_iter${niter_prealign_tel}.conf#g" config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        fi
-        corry -c config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        # ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag}/align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.root --noisy-freq 0.95
-        i=$((i+1))
-    done 
-    ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${niter_align_tel}.root --noisy-freq 0.95
-    
-    
-    ####################
-    # Prealignment-dut #
-    ####################
-    
-    echo -e "\n\n\n\033[1;95m############################################################################\033[0m"
-    echo -e "\033[1;95m# execution : corry -c config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}.conf #\033[0m"
-    echo -e "\033[1;95m############################################################################\033[0m\n\n\n"
-    i=1
-    while [ $i -le ${niter_prealign_dut} ]; do 
-        cp config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}.conf config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        sleep 5 # wait for file to be copied
-        sed -i "s#detectors_file_updated = \(.*\)\.conf#detectors_file_updated = \1_iter${i}.conf#g" config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        sed -i "s#histogram_file\(.*\)\.root#histogram_file\1_iter${i}.root#g" config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        if [ ${i} -gt 1 ]; then 
-            sed -i "s#detectors_file \(.*\)\_aligned_tel.conf#detectors_file \1_prealigned_dut_iter$((i-1)).conf#g" config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        else 
-            sed -i "s#detectors_file \(.*\)\.conf#detectors_file \1_iter${niter_align_tel}.conf#g" config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        fi
-        corry -c config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        i=$((i+1))
-    done 
-    
-    ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${niter_prealign_dut}.root --noisy-freq 0.95
-    
-    #################
-    # Alignment-dut #
-    #################
-    
-    echo -e "\n\n\n\033[1;95m#########################################################################\033[0m"
-    echo -e "\033[1;95m# execution : corry -c config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}.conf #\033[0m"
-    echo -e "\033[1;95m#########################################################################\033[0m\n\n\n"
-    i=1
-    if [ "${spatial_cut_iterations}" == "True" ]; then
-        niter_align_dut=${#spatial_cuts[@]}
+        while [ $i -le ${niter_align_tel} ]; do 
+            cp config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}.conf config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            sleep 5 # wait for file to be copied
+            sed -i "s#detectors_file_updated = \(.*\)\.conf#detectors_file_updated = \1_iter${i}.conf#g" config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            sed -i "s#histogram_file\(.*\)\.root#histogram_file\1_iter${i}.root#g" config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            # Iteratively decrease spatial_cut if spatial_cut_iterations variable set to true
+            if [ "${spatial_cut_iterations}" == "True" ]; then
+                sed -i "s#spatial_cut_abs=.*#spatial_cut_abs=${spatial_cuts[$((i-1))]}um,${spatial_cuts[$((i-1))]}um#g" config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            fi
+            if [ ${i} -gt 1 ]; then 
+                sed -i "s#detectors_file \(.*\)\_prealigned_tel.conf#detectors_file \1_aligned_tel_iter$((i-1)).conf#g" config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            else 
+                sed -i "s#detectors_file \(.*\)\.conf#detectors_file \1_iter${niter_prealign_tel}.conf#g" config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            fi
+            corry -c config/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            # ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag}/align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.root --noisy-freq 0.95
+            i=$((i+1))
+        done 
+        ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag_w_slash}align_tel_${testbeam_alphabetic}-${chip}_HV${HV}_iter${niter_align_tel}.root --noisy-freq 0.95
     fi
-    while [ $i -le ${niter_align_dut} ]; do 
-        cp config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}.conf config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        sleep 5 # wait for file to be copied
 
-        sed -i "s#detectors_file_updated = \(.*\)\.conf#detectors_file_updated = \1_iter${i}.conf#g" config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        sed -i "s#histogram_file\(.*\)\.root#histogram_file\1_iter${i}.root#g" config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        if [ "${spatial_cut_iterations}" == "True" ]; then
-            sed -i "s#spatial_cut_abs=.*#spatial_cut_abs=${spatial_cuts[$((i-1))]}um,${spatial_cuts[$((i-1))]}um#g" config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        fi
-        if [ ${i} -gt 1 ]; then 
-            sed -i "s#detectors_file \(.*\)\_prealigned_dut.conf#detectors_file \1_aligned_dut_iter$((i-1)).conf#g" config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        else 
-            sed -i "s#detectors_file \(.*\)\.conf#detectors_file \1_iter${niter_prealign_dut}.conf#g" config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        fi
-        corry -c config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
-        i=$((i+1))
-    done 
     
-    ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${niter_align_dut}.root --noisy-freq 0.95
+    if [[ " ${skip_list[@]} " =~ " prealign_dut " ]]; then
+        echo "Skipping prealign_dut!"
+    else    
+        ####################
+        # Prealignment-dut #
+        ####################
+        
+        echo -e "\n\n\n\033[1;95m############################################################################\033[0m"
+        echo -e "\033[1;95m# execution : corry -c config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}.conf #\033[0m"
+        echo -e "\033[1;95m############################################################################\033[0m\n\n\n"
+        i=1
+        while [ $i -le ${niter_prealign_dut} ]; do 
+            cp config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}.conf config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            sleep 5 # wait for file to be copied
+            sed -i "s#detectors_file_updated = \(.*\)\.conf#detectors_file_updated = \1_iter${i}.conf#g" config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            sed -i "s#histogram_file\(.*\)\.root#histogram_file\1_iter${i}.root#g" config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            if [ ${i} -gt 1 ]; then 
+                sed -i "s#detectors_file \(.*\)\_aligned_tel.conf#detectors_file \1_prealigned_dut_iter$((i-1)).conf#g" config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            else 
+                sed -i "s#detectors_file \(.*\)\.conf#detectors_file \1_iter${niter_align_tel}.conf#g" config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            fi
+            corry -c config/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            i=$((i+1))
+        done 
+        
+        ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag_w_slash}prealign_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${niter_prealign_dut}.root --noisy-freq 0.95
+    fi
 
+
+    if [[ " ${skip_list[@]} " =~ " align_dut " ]]; then
+        echo "Skipping align_dut!"
+    else    
+        #################
+        # Alignment-dut #
+        #################
+        
+        echo -e "\n\n\n\033[1;95m#########################################################################\033[0m"
+        echo -e "\033[1;95m# execution : corry -c config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}.conf #\033[0m"
+        echo -e "\033[1;95m#########################################################################\033[0m\n\n\n"
+        i=1
+        if [ "${spatial_cut_iterations}" == "True" ]; then
+            niter_align_dut=${#spatial_cuts[@]}
+        fi
+        while [ $i -le ${niter_align_dut} ]; do 
+            cp config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}.conf config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            sleep 5 # wait for file to be copied
+
+            sed -i "s#detectors_file_updated = \(.*\)\.conf#detectors_file_updated = \1_iter${i}.conf#g" config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            sed -i "s#histogram_file\(.*\)\.root#histogram_file\1_iter${i}.root#g" config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            if [ "${spatial_cut_iterations}" == "True" ]; then
+                sed -i "s#spatial_cut_abs=.*#spatial_cut_abs=${spatial_cuts[$((i-1))]}um,${spatial_cuts[$((i-1))]}um#g" config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            fi
+            if [ ${i} -gt 1 ]; then 
+                sed -i "s#detectors_file \(.*\)\_prealigned_dut.conf#detectors_file \1_aligned_dut_iter$((i-1)).conf#g" config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            else 
+                sed -i "s#detectors_file \(.*\)\.conf#detectors_file \1_iter${niter_prealign_dut}.conf#g" config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            fi
+            corry -c config/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${i}.conf
+            i=$((i+1))
+        done 
+        
+        ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag_w_slash}align_dut_${testbeam_alphabetic}-${chip}_HV${HV}_iter${niter_align_dut}.root --noisy-freq 0.95
+    fi
 fi
 
-############
-# Analysis #
-############
-echo -e "\n\n\n\033[1;95m############################################################\033[0m"
-echo -e "\033[1;95m# corry -c config/${chip}/${tag_w_slash}analysis_${testbeam_alphabetic}-${chip}_HV${HV}.conf #\033[0m"
-echo -e "\033[1;95m############################################################\033[0m\n\n\n"
+
+if [[ " ${skip_list[@]} " =~ " analysis " ]]; then
+    echo "Skipping analysis!"
+else    
+    ############
+    # Analysis #
+    ############
+    echo -e "\n\n\n\033[1;95m############################################################\033[0m"
+    echo -e "\033[1;95m# corry -c config/${chip}/${tag_w_slash}analysis_${testbeam_alphabetic}-${chip}_HV${HV}.conf #\033[0m"
+    echo -e "\033[1;95m############################################################\033[0m\n\n\n"
 
 
-## Below is only necessary since I implemented the niters hackily...
-sed -i "s#detectors_file \(.*\)\.conf#detectors_file \1_iter${niter_align_dut}.conf#g" config/${chip}/${tag_w_slash}analysis_${testbeam_alphabetic}-${chip}_HV${HV}.conf
-sed -i "s#detectors_file_updated = \(.*\)_aligned_dut_analysed.conf#detectors_file_updated = \1_aligned_dut_iter${niter_align_dut}_analysed.conf#g" config/${chip}/${tag_w_slash}analysis_${testbeam_alphabetic}-${chip}_HV${HV}.conf
-nx_prime=$((nx-1))
-ny_prime=$((ny-1))
-sed -i '/type = "ce65v2"/a\
-roi = [[0,0],[0,'"$ny_prime"'],['"$nx_prime"','"$ny_prime"'],['"$nx_prime"',0]]' geometry/${chip}/${tag_w_slash}${testbeam_alphabetic}-${chip}_HV${HV}_aligned_dut_iter${niter_align_dut}.conf
+    ## Below is only necessary since I implemented the niters hackily...
+    sed -i "s#detectors_file \(.*\)\.conf#detectors_file \1_iter${niter_align_dut}.conf#g" config/${chip}/${tag_w_slash}analysis_${testbeam_alphabetic}-${chip}_HV${HV}.conf
+    sed -i "s#detectors_file_updated = \(.*\)_aligned_dut_analysed.conf#detectors_file_updated = \1_aligned_dut_iter${niter_align_dut}_analysed.conf#g" config/${chip}/${tag_w_slash}analysis_${testbeam_alphabetic}-${chip}_HV${HV}.conf
+    nx_prime=$((nx-1))
+    ny_prime=$((ny-1))
+    sed -i '/type = "ce65v2"/a\
+    roi = [[0,0],[0,'"$ny_prime"'],['"$nx_prime"','"$ny_prime"'],['"$nx_prime"',0]]' geometry/${chip}/${tag_w_slash}${testbeam_alphabetic}-${chip}_HV${HV}_aligned_dut_iter${niter_align_dut}.conf
 
-corry -c config/${chip}/${tag_w_slash}analysis_${testbeam_alphabetic}-${chip}_HV${HV}.conf
-if ! $flag_batch; then
-    ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag_w_slash}analysis_${testbeam_alphabetic}-${chip}_${run_number_beam}_seedthr${seedthr_analysis}_nbh${nbh_analysis}_snr${snr_seed_analysis}_${method_analysis}.root
+    corry -c config/${chip}/${tag_w_slash}analysis_${testbeam_alphabetic}-${chip}_HV${HV}.conf
+    if ! $flag_batch; then
+        ../corry/plot_analog_ce65v2.py -f output/${chip}/${tag_w_slash}analysis_${testbeam_alphabetic}-${chip}_${run_number_beam}_seedthr${seedthr_analysis}_nbh${nbh_analysis}_snr${snr_seed_analysis}_${method_analysis}.root
+    fi
 fi
-
 
 echo -e "\n\n\n\033[1;95m-FINISHED EXECUTION-\033[0m\n\n\n"
 

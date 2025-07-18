@@ -1,0 +1,41 @@
+
+##########
+# Params #
+##########
+
+
+# Maybe re-order some of these, they look awkward
+testbeam="SPS202506"
+chip="BLK225HSQ"
+pcb="pcb30"
+#HV=()
+HV="10"
+momentum=120   #GeV
+#(optional, leave blank)
+#run_number_beam="245114100_250613114107"
+#run_number_noise="245092002_250613092009"
+number_of_events=-1
+
+seedthr_alignment="900"
+nbh_alignment="200"
+snr_seed_alignment="9"
+snr_neighbor_alignment="1"
+
+seedthr_analysis="520"
+nbh_analysis="520"
+snr_seed_analysis="3"
+snr_neighbor_analysis="2"
+spatial_cut_abs_analysis="75um,75um"
+
+method_alignment="cluster"
+#method_analysis="window"
+method_analysis="cluster"
+
+niter_prealign_tel=2
+niter_align_tel=6
+niter_prealign_dut=1
+niter_align_dut=4
+
+spatial_cut_iterations="True"
+
+useNoiseMask="True"
